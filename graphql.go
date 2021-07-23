@@ -63,17 +63,18 @@ func (c *Client) do(ctx context.Context, op operationType, v interface{}, variab
 	var buf bytes.Buffer
 	err := json.NewEncoder(&buf).Encode(in)
 	if err != nil {
-		return err
+		return &RequestError{
+			err: err,
+		}
 	}
 	resp, err := ctxhttp.Post(ctx, c.httpClient, c.url, "application/json", &buf)
 	if err != nil {
-		return err
+		return &RequestError{
+			err: err,
+		}
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := ioutil.ReadAll(resp.Body)
-		return fmt.Errorf("non-200 OK status code: %v body: %q", resp.Status, body)
-	}
+
 	var out struct {
 		Data   *json.RawMessage
 		Errors errors
@@ -81,18 +82,35 @@ func (c *Client) do(ctx context.Context, op operationType, v interface{}, variab
 	}
 	err = json.NewDecoder(resp.Body).Decode(&out)
 	if err != nil {
-		// TODO: Consider including response body in returned error, if deemed helpful.
-		return err
+		return &RequestError{
+			err: err,
+			NetworkError: &NetworkErrorInfo{
+				StatusCode: resp.StatusCode,
+			},
+		}
 	}
 	if out.Data != nil {
 		err := jsonutil.UnmarshalGraphQL(*out.Data, v)
 		if err != nil {
-			// TODO: Consider including response body in returned error, if deemed helpful.
-			return err
+			return &RequestError{
+				err: err,
+				NetworkError: &NetworkErrorInfo{
+					StatusCode: resp.StatusCode,
+				},
+			}
 		}
 	}
+
 	if len(out.Errors) > 0 {
-		return out.Errors
+		return &GraphQLError{
+			GraphqlErrors: out.Errors,
+		}
+	}
+
+	// check http status code
+	if resp.StatusCode != http.StatusOK {
+		body, _ := ioutil.ReadAll(resp.Body)
+		return fmt.Errorf("non-200 OK status code: %v body: %q", resp.Status, body)
 	}
 	return nil
 }
@@ -107,6 +125,7 @@ type errors []struct {
 		Line   int
 		Column int
 	}
+	Extensions map[string]interface{}
 }
 
 // Error implements error interface.
