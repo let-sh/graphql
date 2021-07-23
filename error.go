@@ -8,9 +8,10 @@ type GraphQLError struct {
 }
 
 type RequestError struct {
-	err           error
+	err          error
 	NetworkError *NetworkErrorInfo
 }
+
 type NetworkErrorInfo struct {
 	StatusCode   int
 	ErrorMessage string
@@ -26,12 +27,20 @@ func (e *GraphQLError) Error() string {
 	return errMessage
 }
 
+func (e *GraphQLError) Unwrap() error {
+	return e.err
+}
+
 func (e *RequestError) Error() string {
 	var errMessage string
 	if e.NetworkError != nil {
 		errMessage += fmt.Sprintf("non-200 OK status code: %d", e.NetworkError.StatusCode)
 	} else {
-		return e.Error()
+		return e.err.Error()
 	}
 	return errMessage
+}
+
+func (e *RequestError) Unwrap() error {
+	return e.err
 }
